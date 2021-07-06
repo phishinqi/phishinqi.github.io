@@ -99,7 +99,7 @@
                                 <script>
                                 var now = new Date(); 
                                 function createtime(){ 
-                                var grt= new Date("07/05/2021 23:38:40");//此处修改你的建站时间或者网站上线时间 
+                                var grt= new Date("07/06/2021 00:00:00");//此处修改你的建站时间或者网站上线时间 
                                 now.setTime(now.getTime()+250);
                                 days = (now - grt ) / 1000 / 60 / 60 / 24; 
                                 dnum = Math.floor(days); 
@@ -131,16 +131,14 @@
             <article id="page">
                 <div class="article-container">
                     <h2>听听音乐</h2>
-		        <div>
-                    	<meting-js
-                        	    server="netease"
-                        	    type="playlist"
-                        	    id="2994482118"
-                        	    order="random"
-                        	    autoplay="true"
-                        	    mutex="true">
-                    	</meting-js>
-			</div>
+                    <div>
+                        <meting-js
+	                        server="netease"
+	                        type="playlist"
+	                        id="6845344641">
+                        </meting-js>
+                    </div>
+                </div>
                     <hr>
                     
 					<h2>编程属性</h2>
@@ -251,9 +249,10 @@
 <script async src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/instant.page@3.0.0/instantpage.js" type="module"></script>
 <script src="https://cdn.jsdelivr.net/npm/lazysizes@5.2.0/lazysizes.min.js" async></script>
-<!-- aplayer、meting -->
+<!-- require APlayer -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/aplayer/dist/APlayer.min.css">
 <script src="https://cdn.jsdelivr.net/npm/aplayer/dist/APlayer.min.js"></script>
+<!-- require MetingJS -->
 <script src="https://cdn.jsdelivr.net/npm/meting@2/dist/Meting.min.js"></script>
 <!--   一言、今日诗词   -->
 <script src="https://v1.hitokoto.cn/?encode=js&select=%23hitokoto" defer></script>
