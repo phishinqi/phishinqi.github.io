@@ -22,6 +22,6 @@ setInternet(function() {
 	window.outerHeight - window.innerHeight > threshold) {
 		// 如果打开控制台，则刷新页面
 		//window.location.reload();
-        window.location.replace("https://phishinqi.github.io/ban.html");
+        	window.location.replace("https://phishinqi.github.io/ban.html");
 	}
 }, 1e3);
