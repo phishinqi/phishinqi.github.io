@@ -6,3 +6,6 @@ https://cf.trackerslist.com/all.txt
 https://cdn.jsdelivr.net/gh/DeSireFire/animeTrackerList/AT_all.txt
 https://gitee.com/harvey520/www.yaozuopan.top/raw/master/blacklist.txt
 http://github.itzmx.com/1265578519/OpenTracker/master/tracker.txt
+https://raw.githubusercontent.com/hezhijie0327/Trackerslist/main/trackerslist_combine.txt
+https://raw.githubusercontent.com/hezhijie0327/Trackerslist/main/trackerslist_exclude.txt
+https://raw.githubusercontent.com/hezhijie0327/Trackerslist/main/trackerslist_tracker.txt
