@@ -11,7 +11,6 @@ https://raw.githubusercontent.com/hezhijie0327/Trackerslist/main/trackerslist_ex
 https://raw.githubusercontent.com/hezhijie0327/Trackerslist/main/trackerslist_tracker.txt
 https://ghproxy.com/https://raw.githubusercontent.com/Tunglies/TrackersList/main/all.txt
 https://raw.githubusercontent.com/phishinqi/source/main/tracker.txt
-https://github.com/ngosang/trackerslist
 https://github.itzmx.com/1265578519/OpenTracker/master/tracker.txt
 https://cdn.jsdelivr.net/gh/DeSireFire/animeTrackerList/ATline_best.txt
 https://cdn.jsdelivr.net/gh/DeSireFire/animeTrackerList/ATline_all.txt
@@ -22,12 +21,3 @@ https://cdn.jsdelivr.net/gh/DeSireFire/animeTrackerList/ATline_all_ws.txt
 https://cdn.jsdelivr.net/gh/DeSireFire/animeTrackerList/ATline_best_ip.txt
 https://cdn.jsdelivr.net/gh/DeSireFire/animeTrackerList/ATline_all_ip.txt
 https://cdn.jsdelivr.net/gh/DeSireFire/animeTrackerList/ATline_bad.txt
-https://cdn.jsdelivr.net/gh/DeSireFire/animeTrackerList/AT_best.txt
-https://cdn.jsdelivr.net/gh/DeSireFire/animeTrackerList/AT_all.txt
-https://cdn.jsdelivr.net/gh/DeSireFire/animeTrackerList/AT_all_udp.txt
-https://cdn.jsdelivr.net/gh/DeSireFire/animeTrackerList/AT_all_http.txt
-https://cdn.jsdelivr.net/gh/DeSireFire/animeTrackerList/AT_all_https.txt
-https://cdn.jsdelivr.net/gh/DeSireFire/animeTrackerList/AT_all_ws.txt
-https://cdn.jsdelivr.net/gh/DeSireFire/animeTrackerList/AT_best_ip.txt
-https://cdn.jsdelivr.net/gh/DeSireFire/animeTrackerList/AT_all_ip.txt
-https://cdn.jsdelivr.net/gh/DeSireFire/animeTrackerList/AT_bad.txt
