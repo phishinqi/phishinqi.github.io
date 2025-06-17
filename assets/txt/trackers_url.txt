@@ -21,3 +21,4 @@ https://cdn.jsdelivr.net/gh/DeSireFire/animeTrackerList/ATline_best_ip.txt
 https://cdn.jsdelivr.net/gh/DeSireFire/animeTrackerList/ATline_all_ip.txt
 https://cdn.jsdelivr.net/gh/DeSireFire/animeTrackerList/ATline_bad.txt
 https://raw.githubusercontent.com/phiyuki/tracker_actionfork/refs/heads/main/trackers_all.txt
+https://raw.githubusercontent.com/Tunglies/TrackersList/main/all.txt
