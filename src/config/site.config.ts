@@ -78,6 +78,7 @@ export const siteConfig = {
       links: [
         { label: 'GitHub', url: 'https://github.com/astraruri' },
         { label: 'X', url: 'https://x.com/astraruri' },
+        { label: 'Bilibili', url: 'https://space.bilibili.com/267034016'},
       ],
     },
   ] as Person[],
