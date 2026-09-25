@@ -1,210 +1,135 @@
-<!DOCTYPE html>
-<html>
-
-<head>
-    <!-- Meta, title, CSS, favicons, etc. -->
-    <meta charset="utf-8">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="鱼七楽 Home">
-    <meta name="keywords" content="鱼七楽,Homepage">
-    <meta name="author" content="鱼七楽">
-    <title>鱼七楽 Homepage</title>
-    <link rel="stylesheet" type="text/css" href="./assets/css/onlinewebfonts.css"/>
-    <link rel="stylesheet" type="text/css" href="./assets/css/vno.css">
-    <link rel="stylesheet" type="text/css" href="./assets/css/iconfont.css">
-    <link rel="apple-touch-icon" href="./apple-touch-icon.png">
-    <link rel="icon" href="./favicon.ico">
-    <!-- require APlayer -->
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/aplayer/dist/APlayer.min.css">
-<script src="https://cdn.jsdelivr.net/npm/aplayer/dist/APlayer.min.js"></script>
-<!-- require MetingJS -->
-<script src="https://cdn.jsdelivr.net/npm/meting@2/dist/Meting.min.js"></script>
-</head>
-
-<body>
-    <span class="mobile btn-mobile-menu">
-        <i class="social iconfont icon-list btn-mobile-menu__icon"></i>
-        <i class="social iconfont icon-angleup btn-mobile-close__icon hidden"></i>
-    </span>
-    <header id="panel" class="panel-cover">
-        <div class="panel-main">
-            <div class="panel-main__inner panel-inverted">
-                <div class="panel-main__content">
-                    <div class="ih-item circle effect right_to_left">            
-                        <a href="#" title="" class="blog-button">
-                            <div class="img"><img src="./img/logo3.jpg" alt="img" class="js-avatar iUp profilepic"></div>
-                            <div class="info iUp">
-                                <div class="info-back">
-                                    <h2> 
-                                        
-                                            PhishinQi
-                                        
-                                    </h2>
-                                    <p>
-                                        
-                                            凉风 · 春夏
-                                        
-                                    </p>
-                                </div>
-                            </div>
-                        </a>
-                    </div>
-
-                    <!-- <a href="#" title="鱼七楽 Home" class="profilepic">
-                        <img src="./img/logo2.jpg" width="80" alt="鱼七楽`s logo" class="js-avatar iUp show" />
-                    </a> -->
-                    <h1 class="panel-cover__title panel-title iUp">
-                        <a href="#" title="七楽 Home">鱼七楽</a>
-                    </h1>
-                    <p class="panel-cover__subtitle panel-subtitle iUp">兴趣使然</p>
-                    <p class="panel-cover__subtitle panel-subtitle iUp">
-                        <span id="sitetime"></span>
-                        <script language=javascript>
-                        function siteTime(){
-                        window.setTimeout("siteTime()", 1000);
-                        var seconds = 1000
-                        var minutes = seconds * 60
-                        var hours = minutes * 60
-                        var days = hours * 24
-                        var years = days * 365
-                        var today = new Date()
-                        var todayYear = today.getFullYear()
-                        var todayMonth = today.getMonth()
-                        var todayDate = today.getDate()
-                        var todayHour = today.getHours()
-                        var todayMinute = today.getMinutes()
-                        var todaySecond = today.getSeconds()
-                        /* Date.UTC() -- 返回date对象距世界标准时间(UTC)1970年1月1日午夜之间的毫秒数(时间戳)
-                        year - 作为date对象的年份，为4位年份值
-                        month - 0-11之间的整数，做为date对象的月份
-                        day - 1-31之间的整数，做为date对象的天数
-                        hours - 0(午夜24点)-23之间的整数，做为date对象的小时数
-                        minutes - 0-59之间的整数，做为date对象的分钟数
-                        seconds - 0-59之间的整数，做为date对象的秒数
-                        microseconds - 0-999之间的整数，做为date对象的毫秒数 */
-                        var t1 = Date.UTC(2021,6,6,0,0,00)
-                        var t2 = Date.UTC(todayYear,todayMonth,todayDate,todayHour,todayMinute,todaySecond)
-                        var diff = t2-t1
-                        var diffYears = Math.floor(diff/years)
-                        var diffDays = Math.floor((diff/days)-diffYears*365)
-                        var diffHours = Math.floor((diff-(diffYears*365+diffDays)*days)/hours)
-                        var diffMinutes = Math.floor((diff-(diffYears*365+diffDays)*days-diffHours*hours)/minutes)
-                        var diffSeconds = Math.floor((diff-(diffYears*365+diffDays)*days-diffHours*hours-diffMinutes*minutes)/seconds)
-                        document.getElementById("sitetime").innerHTML="本站已勉强运行"+diffYears+" 年 "+diffDays+" 天 "+diffHours+" 小时 "+diffMinutes+" 分钟 "+diffSeconds+" 秒"
-                        }
-                        siteTime()
-                        </script>
-                    </p>
-                    <hr class="panel-cover__divider iUp" />
-                    <p id="description" class="panel-cover__description iUp">如何得与凉风约，不共尘沙一并来!
-                        <br/>
-                        <strong>-「中牟道中」</strong>
-                    </p>
-                    <div class="navigation-wrapper iUp">
-                        <div>
-                            <nav class="cover-navigation cover-navigation--primary">
-                                <ul class="navigation">
-                                    <li class="navigation__item">
-                                        <a href="/" class="blog-button">首页</a>
-                                    </li>
-                                    <li class="navigation__item">
-                                        <a href="https://phishinqi.github.io/blog/" class="blog-button" target="_blank">博客</a>
-                                    </li>
-                                    <li class="navigation__item">
-                                        <a href="https://phishinqi.github.io/blog/about/" class="blog-button" target="_blank">关于</a>
-                                    </li>
-                                    <li class="navigation__item">
-                                        <a href="https://support.qq.com/products/405073/" class="blog-button" target="_blank">留言板</a>
-                                    </li>
-                                </ul>
-                            </nav>
-                        </div>
-                        <div class="iUp">
-                            <nav class="cover-navigation navigation--social">
-                                <ul class="navigation">
-                                    <li class="navigation__item">
-                                        <a href="https://github.com/phishinqi/" title="github" target="_blank">
-                                            <i class='social iconfont icon-github'></i>
-                                            <span class="label">github</span>
-                                        </a>
-                                    </li>
-
-                                    <li class="navigation__item">
-                                        <a href="mailto:phishinqi@outlook.com" title="email">
-                                            <i class='social iconfont icon-email'></i>
-                                            <span class="label">email</span>
-                                        </a>
-                                    </li><br>
-                                    <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
-                                    本站总访问量 <span id="busuanzi_value_site_pv"></span> 次<br>
-                                    本站访客数 <span id="busuanzi_value_site_uv"></span> 人次<br>
-                                    <div tyle="position: absolute; bottom: 10px; right: 10px;" class="iUp">
-                                        <meting-js
-                                            server="netease"
-                                            type="playlist"
-                                            order="random"
-                                            autoplay="true"
-                                            mini="false"
-                                            id="6845344641">
-                                        </meting-js>
-                                    </div>
-                                </ul>
-                            </nav>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="panel-cover--overlay cover-slate"></div>
-        </div>
-        <!-- <div class="beian iUp">
-            <a class="icp" href="http://www.miitbeian.gov.cn/publish/query/indexFirst.action" target="_blank">XXX</a>
-            <a class="gwab" href="http://www.beian.gov.cn/portal/recordQuery" target="_blank">XXX</a>
-        </div> -->
-        <div class="remark iUp">
-            <p class="power">Powered By 
-                <a href="https://bird.ioliu.cn/" target="_blank"> JsonBird </a> And 
-                <a href="https://hitokoto.cn/" target="_blank"> Hitokoto </a>
-            </p>
-        </div>
-    </header>
-    <script type="text/javascript" src="./assets/js/jquery.min.js"></script>
-    <script type="text/javascript" src="./assets/js/fetch.min.js"></script>
-    <script type="text/javascript" src="./assets/js/main.js"></script>
-
-    <script type="text/javascript">
-        console.clear();
-        console.log("%c 有朋自远方来, 不亦说乎.", "background:#24272A; color:#ffffff", "");
-        console.log("%c Github %c", "background:#24272A; color:#ffffff", "", "https://github.com/phishinqi");
-        console.log("%c 版本号: %c", "background:#24272A; color:#ffffff", "", "6.1.6");
-    
-    // 浏览器搞笑标题
-    var OriginTitle = document.title;
-    var titleTime;
-    document.addEventListener('visibilitychange', function () {
-        if (document.hidden) {
-            // $('[rel="icon"]').attr('href', "/funny.ico");
-            document.title = '╭(°A°`)╮ 页面崩溃啦 ~';
-            clearTimeout(titleTime);
-        }
-        else {
-            $('[rel="icon"]').attr('href', "/favicon.ico");
-            document.title = '(ฅ>ω<*ฅ) 噫又好啦 ~' + OriginTitle;
-            titleTime = setTimeout(function () {
-                document.title = OriginTitle;
-            }, 2000);
-        }
-    });
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#FFFFFF" />
+    <meta name="description" content="鱼七 & astraRuri — Tracing light, a home for two." />
+    <title>鱼七 & astraRuri</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='12' cy='16' r='9' fill='%23FF8899'/%3E%3Ccircle cx='20' cy='16' r='9' fill='%2377BBDD' fill-opacity='.85'/%3E%3C/svg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- Outfit：英文几何无衬线；Noto Sans SC 按 unicode-range 自动切片，只下载用到的汉字分片 -->
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@300..700&family=Inter:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700&display=swap"
+    />
+    <script>
+      // 在首帧前应用主题，避免闪烁
+      (function () {
+        var o = localStorage.getItem('theme-override');
+        var d = o ? o === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+        document.documentElement.dataset.theme = d ? 'dark' : 'light';
+      })();
     </script>
-</body>
+  </head>
+  <body>
+    <!-- 加载页 -->
+    <div class="loader" id="loader" aria-hidden="true">
+      <div class="loader-count"><span id="loader-num">000</span></div>
+      <div class="loader-label" data-i18n="loader.label"></div>
+      <div class="loader-bar"><span id="loader-bar"></span></div>
+    </div>
 
+    <canvas id="gl" aria-hidden="true"></canvas>
+    <div class="grain" aria-hidden="true"></div>
+
+    <!-- 导航 -->
+    <header class="nav">
+      <a class="nav-logo" href="#home" data-scroll>
+        <span class="dot dot-a"></span><span class="dot dot-b"></span>
+        <span class="nav-logo-text" id="nav-logo"></span>
+      </a>
+      <nav class="nav-links glass" aria-label="Primary">
+        <a href="#home" data-scroll><span class="roll"><span data-i18n="nav.home"></span><span data-i18n="nav.home"></span></span></a>
+        <a href="#us" data-scroll><span class="roll"><span data-i18n="nav.us"></span><span data-i18n="nav.us"></span></span></a>
+        <a href="#work" data-scroll><span class="roll"><span data-i18n="nav.work"></span><span data-i18n="nav.work"></span></span></a>
+        <a href="#contact" data-scroll><span class="roll"><span data-i18n="nav.contact"></span><span data-i18n="nav.contact"></span></span></a>
+      </nav>
+      <div class="nav-tools glass">
+        <button class="tool" id="lang-toggle" data-i18n-aria="ui.lang">
+          <span class="lang-opt" data-lang="zh">中</span><span class="lang-sep">/</span><span class="lang-opt" data-lang="en">EN</span>
+        </button>
+        <button class="tool" id="theme-toggle" data-i18n-aria="ui.theme">
+          <svg class="icon-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2" /><g stroke-linecap="round"><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6" /></g></svg>
+          <svg class="icon-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z" /></svg>
+        </button>
+      </div>
+    </header>
+
+    <main>
+      <!-- 1. 首屏：2D 光线追踪 -->
+      <section class="hero" id="home">
+        <h1 class="sr-only" id="hero-title"></h1>
+        <div class="hero-ui">
+          <p class="hero-kicker" data-i18n="hero.kicker"></p>
+          <p class="hero-hint"><span class="pulse"></span><span id="hero-hint"></span></p>
+          <div class="hero-coords" aria-hidden="true">
+            <span>A <b id="coord-a">0.000 · 0.000</b></span>
+            <span>B <b id="coord-b">0.000 · 0.000</b></span>
+          </div>
+          <a class="hero-scroll" href="#scene" data-scroll>
+            <span data-i18n="hero.scroll"></span>
+            <span class="hero-scroll-line"></span>
+          </a>
+        </div>
+      </section>
+
+      <!-- 2. 3D 体积光场景 -->
+      <section class="scene" id="scene">
+        <div class="scene-sticky">
+          <p class="kicker" data-i18n="scene.kicker"></p>
+          <h2 class="display scene-tagline" id="tagline"></h2>
+        </div>
+      </section>
+
+      <!-- 3. 双人名牌 -->
+      <section class="us" id="us">
+        <div class="container">
+          <p class="kicker"><span class="kicker-index">01</span><span data-i18n="us.kicker"></span></p>
+          <div class="plates" id="plates"></div>
+        </div>
+      </section>
+
+      <!-- 4. 项目牌 -->
+      <section class="work" id="work">
+        <div class="work-sticky">
+          <div class="container work-head">
+            <p class="kicker"><span class="kicker-index">02</span><span data-i18n="work.kicker"></span></p>
+            <h2 class="display work-title" data-i18n="work.title"></h2>
+            <p class="work-hint"></p>
+          </div>
+          <div class="deck" id="deck"></div>
+        </div>
+      </section>
+
+      <!-- 5. 联系 / 页脚 -->
+      <footer class="contact" id="contact">
+        <div class="container">
+          <p class="kicker"><span class="kicker-index">03</span><span data-i18n="contact.kicker"></span></p>
+          <h2 class="display contact-title">
+            <span data-i18n="contact.title1"></span><br /><em data-i18n="contact.title2"></em>
+          </h2>
+          <div class="contact-grid">
+            <div class="contact-col" id="contact-email-col">
+              <p class="contact-label" data-i18n="contact.email"></p>
+              <a class="contact-mail" id="contact-email"></a>
+            </div>
+            <div class="contact-col" id="contact-links-col">
+              <p class="contact-label" data-i18n="contact.elsewhere"></p>
+              <ul class="link-list" id="contact-links"></ul>
+            </div>
+          </div>
+          <div class="footer-bar">
+            <span id="footer-copy"></span>
+            <span data-i18n="footer.built"></span>
+            <a href="#home" data-scroll class="footer-top"><span data-i18n="footer.top"></span> ↑</a>
+          </div>
+        </div>
+      </footer>
+    </main>
+
+    <p class="fallback-note" data-i18n="fallback.webgl"></p>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
 </html>
-<!-- Global site tag (gtag.js) - Google Analytics -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-4L0GELWRT2"></script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
-
-  gtag('config', 'G-4L0GELWRT2');
-</script>
