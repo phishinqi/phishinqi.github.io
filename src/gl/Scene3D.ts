@@ -306,7 +306,7 @@ export class Scene3D {
           transparent: true,
           opacity: 0.35,
           envMap: env,
-          envMapIntensity: 1.4,
+          envMapIntensity: 0.3,
           clearcoat: 1,
         })
       : new THREE.MeshPhysicalMaterial({
@@ -320,7 +320,7 @@ export class Scene3D {
           iridescence: 0.35,
           iridescenceIOR: 1.3,
           envMap: env,
-          envMapIntensity: 0.55,
+          envMapIntensity: 0.12,
           attenuationColor: new THREE.Color(0.85, 0.9, 1),
           attenuationDistance: 3,
           clearcoat: 1,
@@ -424,7 +424,7 @@ export class Scene3D {
     this.spots.forEach((spot, i) => {
       spot.target.position.copy(targets[i]);
       spot.color.copy(cols[i]);
-      spot.intensity = lerp(150, 320, dark) * ints[i];
+      spot.intensity = lerp(150, 190, dark) * ints[i];
       const cone = this.cones[i];
       const dist = spot.position.distanceTo(targets[i]) * 1.05;
       cone.scale.setScalar(dist);
