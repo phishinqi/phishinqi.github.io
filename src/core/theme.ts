@@ -24,7 +24,7 @@ const make = (bg: string, ink: string, a: string, b: string, shadow: string): Pa
 });
 
 export const palettes: Record<ThemeName, Palette> = {
-  light: make('#FFFFFF', '#15101A', '#FF8899', '#FFDD88', '#D6C6CE'),
+  light: make('#FFFFFF', '#15101A', '#FF8899', '#FFDD88', '#E9E0E7'),
   dark: make('#000000', '#F4F1F6', '#77BBDD', '#F2ABE1', '#000000'),
 };
 

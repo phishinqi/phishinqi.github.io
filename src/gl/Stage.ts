@@ -17,7 +17,7 @@ import { siteConfig } from '../config/site.config';
 const COMPOSITE_FRAG = /* glsl */ `
   #define MAX_TUBES ${MAX_TUBES}
   uniform sampler2D uLight, uTrail, uMask, uScene;
-  uniform float uHeroMix, uTheme, uAspect, uTime, uFlash, uSceneOn, uTubeW;
+  uniform float uHeroMix, uTheme, uAspect, uTime, uFlash, uSceneOn, uTubeW, uLine;
   uniform vec2 uRes;
   uniform vec3 uInk;
   uniform float uInkAlpha;
@@ -44,7 +44,20 @@ const COMPOSITE_FRAG = /* glsl */ `
 
     // 平涂剪影：墨色实心字
     float m = texture2D(uMask, uv).a;
-    vec3 col = mix(bg, mix(bg, uInk, uInkAlpha), m);
+    // 深色：使用浅灰字面并带少量环境反射，避免黑字沉进光场。
+    vec3 face = mix(uInk, mix(vec3(0.13, 0.12, 0.15), vec3(0.22), clamp(dot(bg, vec3(0.333)), 0.0, 1.0) * 0.2), uTheme);
+    vec3 col = mix(bg, mix(bg, face, uInkAlpha), m);
+    if (uTheme > 0.001) {
+      vec2 px = uLine / uRes;
+      float mo = 0.0;
+      for (int k = 0; k < 8; k++) {
+        float a = float(k) * 0.7853982;
+        mo = max(mo, texture2D(uMask, uv + vec2(cos(a), sin(a)) * px).a);
+      }
+      // 只保留很轻的外缘压暗，避免出现清晰的描边边界。
+      float edge = smoothstep(0.0, 0.55, clamp(mo - m, 0.0, 1.0));
+      col = mix(col, face * 0.72, edge * uTheme * 0.16);
+    }
 
     // 移动光源的体积光轨迹
     vec3 tr = texture2D(uTrail, uv).rgb;
@@ -192,6 +205,7 @@ export class Stage {
         uTime: { value: 0 },
         uFlash: { value: 0 },
         uTubeW: { value: 2 },
+        uLine: { value: 1.5 },
         uRes: { value: new THREE.Vector2() },
         uInk: { value: new THREE.Vector3() },
         uInkAlpha: { value: 1 },
@@ -221,6 +235,7 @@ export class Stage {
     u.uAspect.value = w / h;
     u.uRes.value.set(w * dpr, h * dpr);
     u.uTubeW.value = 2.4 * dpr;
+    u.uLine.value = 1.4 * dpr;
   }
 
   /** 文字禁区：文字外框向外扩展「安全距离 + 额外像素」（uv） */
@@ -358,7 +373,7 @@ export class Stage {
     const ca = mixRgb(pl.a, pd.a, th);
     const cb = mixRgb(pl.b, pd.b, th);
     const bg = mixRgb(pl.bg, pd.bg, th);
-    const ink: RGB = mixRgb([0.08, 0.06, 0.1], [0.01, 0.01, 0.012], th);
+    const ink: RGB = mixRgb([0.035, 0.03, 0.045], [0.13, 0.12, 0.15], th);
     const flash = motion.reduced ? 0 : input.glitch * (Math.random() - 0.5) * 0.06;
 
     const heroOn = input.heroMix > 0.001;

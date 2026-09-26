@@ -89,6 +89,7 @@ const lightFrag = (samples: number) => /* glsl */ `
   uniform int uCount;
   uniform float uRadius;
   uniform float uAmbient;
+  uniform float uHeight;
   uniform float uTheme;
   uniform vec3 uBgL, uBgD, uShadowL;
   varying vec2 vUv;
@@ -99,18 +100,21 @@ const lightFrag = (samples: number) => /* glsl */ `
   float sdf(vec2 uv) { return texture2D(uDist, uv).r; }
   float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
 
-  // 软阴影：半影宽度随「遮挡物 → 像素」距离线性增大
+  // 软阴影：字有厚度，光源悬在更高处 —— 只有距像素 tMax 以内的遮挡物挡得住光，
+  // 阴影长度随光源距离增长；越接近 tMax 光线越贴近字顶，阴影末端柔和消散。
+  // 半影宽度随「遮挡物 → 像素」距离线性增大
   float softShadow(vec2 p, vec2 l) {
     vec2 d = asp(l - p);
     float dist = length(d);
     vec2 dir = d / max(dist, 1e-5);
+    float tMax = min(dist - 0.004, dist * uHeight);
     float res = 1.0;
     // 起点抖动：把步进产生的条纹打散成不可见的细噪
     float t = 0.004 + hash(p * 917.0) * 0.005;
     for (int i = 0; i < 28; i++) {
-      if (t >= dist - 0.004) break;
+      if (t >= tMax) break;
       float h = sdf(p + (dir * t) / vec2(uAspect, 1.0));
-      res = min(res, h / (t * 0.5));
+      res = min(res, max(h / (t * 0.8), smoothstep(0.3, 1.0, t / tMax)));
       if (res < 0.002) return 0.0;
       t += max(h, 0.005);
     }
@@ -118,8 +122,11 @@ const lightFrag = (samples: number) => /* glsl */ `
     return res * res * (3.0 - 2.0 * res);
   }
 
-  float falloff(float r) {
-    return exp(-r * r / (uRadius * uRadius)) * 0.75 + 0.25 / (1.0 + r * r * 40.0);
+  // 长尾衰减：没有高斯那样的「光斑边缘」，整面墙被连续地铺亮
+  float falloff(float r, float radius) {
+    // 保持连续过渡，同时压低远距离尾部，避免多盏灯叠加成一层灰白雾。
+    float k = r / max(radius * 1.05, 0.001);
+    return 0.74 * exp(-k * k * 0.9) + 0.26 / (1.0 + k * k * 3.0);
   }
 
   void main() {
@@ -133,8 +140,10 @@ const lightFrag = (samples: number) => /* glsl */ `
       if (i >= uCount) break;
       vec2 a = uSeg[i].xy, b = uSeg[i].zw;
       vec2 c = closestOnSeg(p, a, b, uAspect);
-      float f = falloff(length(asp(p - c))) * uInt[i];
-      if (f < 0.01) continue;
+      // 保留完整的连续衰减，避免在光晕边缘产生亮度台阶
+      float sourceRadius = uRad[i] > 0.0 ? uRadius : uRadius * 0.42;
+      float f = falloff(length(asp(p - c)), sourceRadius) * uInt[i];
+      if (f <= 0.0) continue;
       // 文字内部取半遮挡：上采样后字缘只留一圈很淡的接触阴影
       float sh = 0.5;
       if (!inside) {
@@ -165,7 +174,7 @@ const lightFrag = (samples: number) => /* glsl */ `
     // ── 深色：黑底被彩色灯管的漫射光铺满
     // 在线性空间累加再转回 sRGB：粉彩色光也能保持饱和，灯管之间留出暗部。
     // uAmbient 是不受遮挡的环境底色：阴影最深处与字内封闭空隙呈深灰而非纯黑，与纯黑字身区分
-    vec3 dark = pow(1.0 - exp(-(uBgD + litLin + uAmbient) * 0.8), vec3(1.0 / 2.2));
+    vec3 dark = pow(1.0 - exp(-(uBgD + litLin * 0.72 + uAmbient) * 0.78), vec3(1.0 / 2.2));
 
     // ── 浅色：白纸被彩光照亮，被遮挡处落入深影；远离文字处由环境光补亮
     vec3 tint = lit / max(L, 1e-3);
@@ -298,7 +307,8 @@ export class LightField {
       uRad: { value: new Array(MAX_TUBES).fill(0) },
       uCount: { value: 0 },
       uRadius: { value: 0.5 },
-      uAmbient: { value: 0.0075 },
+      uAmbient: { value: 0.018 },
+      uHeight: { value: 0.4 },
       uTheme: { value: 0 },
       uBgL: { value: new THREE.Vector3() },
       uBgD: { value: new THREE.Vector3() },
