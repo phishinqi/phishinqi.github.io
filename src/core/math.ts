@@ -31,3 +31,15 @@ export const mixRgb = (a: RGB, b: RGB, t: number): RGB => [
   lerp(a[1], b[1], t),
   lerp(a[2], b[2], t),
 ];
+
+/** 弹跳缓动（与 Akari 相同）：bounceIn 在 0 附近的小起伏就是灯管通电时的明灭 */
+export const bounceOut = (t: number) => {
+  const n = 7.5625;
+  const d = 2.75;
+  if (t < 1 / d) return n * t * t;
+  if (t < 2 / d) return n * (t - 1.5 / d) ** 2 + 0.75;
+  if (t < 2.5 / d) return n * (t - 2.25 / d) ** 2 + 0.9375;
+  return n * (t - 2.625 / d) ** 2 + 0.984375;
+};
+export const bounceIn = (t: number) => 1 - bounceOut(1 - t);
+export const bounceInOut = (t: number) => (t < 0.5 ? bounceIn(t * 2) * 0.5 : bounceOut(t * 2 - 1) * 0.5 + 0.5);

@@ -6,7 +6,7 @@ import { applyLang, onLangChange, t, toggleLang } from './core/i18n';
 import { getTheme, onThemeChange, toggleTheme } from './core/theme';
 import { NameRotator } from './core/nameRotator';
 import { isTouch, motion } from './core/env';
-import { clamp, damp, easeOutCubic, range, smoothstep } from './core/math';
+import { bounceInOut, clamp, damp, easeOutCubic, range, smoothstep } from './core/math';
 import { Stage } from './gl/Stage';
 import { Deck } from './ui/deck';
 import { renderPlates, renderStatic } from './ui/content';
@@ -98,6 +98,7 @@ const redrawNames = () => {
 const resize = () => {
   if (!stage) return deck.layout();
   stage.resize(innerWidth, innerHeight);
+  stage.topInset = Math.max(...['.nav', '.nav-links'].map((s) => $(s).getBoundingClientRect().bottom));
   stage.lightField.layout(siteConfig.people[0].names, siteConfig.people[1].names);
   redrawNames();
   deck.layout();
@@ -107,11 +108,11 @@ let namesDirty = true;
 rotators.forEach((r) => r.subscribe(() => (namesDirty = true)));
 
 // 字体加载完成后再绘制画布文字（中文字体按需分片，限时 4s）
+const allNames = siteConfig.people.flatMap((p) => p.names).join('');
 const fontsReady = Promise.race([
   Promise.all([
-    document.fonts.load('500 100px "Outfit"'),
-    document.fonts.load('400 100px "Outfit"'),
-    document.fonts.load('500 100px "Noto Sans SC"', siteConfig.people.flatMap((p) => p.names).join('')),
+    document.fonts.load('400 100px "Playfair Display"', `${allNames} & `),
+    document.fonts.load('500 100px "Noto Serif SC"', allNames),
   ]),
   new Promise((r) => setTimeout(r, 4000)),
 ]);
@@ -127,23 +128,30 @@ addEventListener('resize', () => {
   resizeTimer = window.setTimeout(resize, 120);
 });
 
-/** 开场点亮：带两次克制的「打火」闪烁 */
-const ignition = (x: number) => {
-  const base = easeOutCubic(clamp(x));
-  if (motion.reduced) return base;
-  const dip = (c: number, w: number, d: number) => {
-    const k = Math.abs(x - c) / w;
-    return k < 1 ? d * (1 - k) : 0;
-  };
-  return Math.max(0, base - dip(0.18, 0.06, 0.5) - dip(0.36, 0.05, 0.35));
-};
+/** 开场点亮：与 Akari 相同的 bounceInOut —— 先是几下微弱的明灭，再弹跳着亮满 */
+const ignition = (x: number) => (motion.reduced ? easeOutCubic(clamp(x)) : bounceInOut(clamp(x)));
 
 // ── 主循环
 let last = performance.now();
 let frame = 0;
-const coordA = $('#coord-a');
-const coordB = $('#coord-b');
 const lightVarsTargets = [$('.nav-logo'), $('#plates')];
+
+// ── 导航：高亮当前区块；离开首屏后给导航条加底色
+const nav = $('.nav');
+const navLinks = [...document.querySelectorAll<HTMLAnchorElement>('.nav-links a')];
+const navTargets = navLinks.map((a) => $(a.getAttribute('href')!));
+let activeNav = -1;
+const updateNav = () => {
+  let idx = 0;
+  navTargets.forEach((el, i) => {
+    if (el.getBoundingClientRect().top <= innerHeight * 0.4) idx = i;
+  });
+  if (idx !== activeNav) {
+    navLinks.forEach((a, i) => a.classList.toggle('is-active', i === idx));
+    activeNav = idx;
+  }
+  nav.classList.toggle('is-scrolled', scrollY > innerHeight * 0.6);
+};
 
 const tick = (now: number) => {
   requestAnimationFrame(tick);
@@ -160,14 +168,17 @@ const tick = (now: number) => {
     const minTime = clamp((now - t0) / 1400);
     loadShown = damp(loadShown, Math.min(loadTarget, minTime), 6, dt);
     if (loadTarget >= 1 && minTime >= 1 && loadShown > 0.995) loadShown = 1;
-    loaderNum.textContent = String(Math.round(loadShown * 100)).padStart(3, '0');
+    loaderNum.textContent = `${Math.round(loadShown * 100)}%`;
     loaderBar.style.transform = `scaleX(${loadShown})`;
     if (loadShown >= 1) {
       loaded = true;
       loadedAt = time;
       $('#loader').classList.add('is-done');
+      document.documentElement.classList.add('is-loaded');
     }
   }
+
+  if (frame % 4 === 0) updateNav();
 
   const toPx = (v: THREE.Vector2) => ({ x: v.x * innerWidth, y: (1 - v.y) * innerHeight });
   deck.update(
@@ -183,7 +194,7 @@ const tick = (now: number) => {
     namesDirty = false;
   }
 
-  stage.power = loaded ? ignition((time - loadedAt) / 1.8) : 0;
+  stage.power = loaded ? ignition((time - loadedAt) / 1.2) : 0;
 
   const vh = innerHeight;
   const heroMix = 1 - smoothstep(0.1, 0.85, scrollY / vh);
@@ -203,12 +214,6 @@ const tick = (now: number) => {
   for (const el of lightVarsTargets) {
     el.style.setProperty('--ia', Math.min(1, ia / 0.72).toFixed(3));
     el.style.setProperty('--ib', Math.min(1, ib / 0.6).toFixed(3));
-  }
-
-  if (frame % 4 === 0 && heroMix > 0) {
-    const f = (v: THREE.Vector2) => `${v.x.toFixed(3)} · ${v.y.toFixed(3)}`;
-    coordA.textContent = f(stage.lightA);
-    coordB.textContent = f(stage.lightB);
   }
 };
 

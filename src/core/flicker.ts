@@ -38,31 +38,3 @@ export class Flicker {
     return Math.max(0.35, v + pulse);
   }
 }
-
-/**
- * Akari 式灯管频闪：平时稳定，偶尔一阵快速的明灭。
- * 每次明灭 90–200ms（≤ 5Hz），熄灭时保留约 20% 余光而非全黑，
- * 一阵最多 5 次；prefers-reduced-motion 时始终返回 1。
- */
-export class Strobe {
-  private next = rand(1.5, 5);
-  private toggles: { t: number; on: boolean }[] = [];
-
-  value(t: number): number {
-    if (motion.reduced) return 1;
-    if (t >= this.next) {
-      const n = 2 + Math.floor(Math.random() * 4);
-      let s = t;
-      this.toggles = [];
-      for (let i = 0; i < n; i++) {
-        this.toggles.push({ t: s, on: i % 2 === 1 });
-        s += rand(0.09, 0.2);
-      }
-      this.toggles.push({ t: s, on: true });
-      this.next = s + rand(3, 10);
-    }
-    let on = true;
-    for (const tg of this.toggles) if (t >= tg.t) on = tg.on;
-    return on ? 1 : 0.2;
-  }
-}

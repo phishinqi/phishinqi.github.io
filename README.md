@@ -23,9 +23,9 @@ npm run preview
 - `projects`：项目牌，追加一条即多一张牌（`monogram` 为单个 A–Z 字母）
 
 配色在 `src/core/theme.ts`（`palettes`、`cardColors`），界面文案在 `src/core/i18n.ts`。
-背景灯管的长度、颜色归属、方向、速度与是否频闪在 `src/gl/Stage.ts` 的 `BG_TUBES`。
+背景霓虹灯管（仿 Akari：12 根，16 秒周期轮流亮灭）的长度、颜色归属、速度与同色系偏移在 `src/gl/Stage.ts` 的 `makeBars`。
 
-字体：英文 Outfit，中文 Noto Sans SC。
+字体：界面英文 Outfit，中文 Noto Sans SC；首屏名字为 Playfair Display + Noto Serif SC。
 
 光源与文字的安全距离：`site.config.ts` → `hero.lightSafeDistance`（CSS 像素）。
 
@@ -46,7 +46,7 @@ npm run preview
 src/
   config/site.config.ts   站点内容配置
   core/                   数学/lerp、主题、i18n、频闪、名字轮播、设备分级
-  gl/LightField.ts        首屏 2D 光线追踪：JFA 距离场 + 线形灯管（面光源）软阴影 + 光轨迹
+  gl/LightField.ts        首屏 2D 光照：Akari 式全局光照（JFA + 光线步进）+ 圆形主光软阴影 + 光轨迹
   gl/Scene3D.ts           3D 体积光场景：纸灯笼（浅色）/ 玻璃几何体（深色）
   gl/Stage.ts             统一画布、光源运动、首屏 ↔ 3D 交叉淡化与最终合成
   ui/deck.ts              项目牌：滚动翻牌、悬停倾斜、随光源方向投影

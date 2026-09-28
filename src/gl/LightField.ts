@@ -2,18 +2,21 @@ import * as THREE from 'three';
 import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
 
 /**
- * 首屏 2D 光线追踪（致敬 akari.lusion.co）
+ * 首屏 2D 光照（仿 akari.lusion.co 的 Home）
  *
- *   遮挡物（名字） ─seed─▶ JFA 跳跃泛洪 ─▶ 距离场（线性插值，消除阶梯）
- *                                            │
- *   横向灯管 + 圆形光源（面光源） ── 多点采样的软阴影 ──▶ 光照（低分辨率，天然柔和）
- *                                            │
- *   移动的灯管 ── 扫掠光晕 + 反馈衰减 ──▶ 体积光拖尾
+ *   名字（黑色遮挡物）+ 灯管（发光体）─▶ 低分辨率场景 ─▶ JFA 跳跃泛洪（灯管在动，每帧重算）
+ *                                                          │
+ *   每个像素向 SAMPLES 个方向做光线步进：命中灯管取光色、命中名字为黑 ─▶ 全局光照 ─▶ 填充模糊 ×3
  *
- * 文字（平涂剪影）与灯管本体在合成阶段以全分辨率绘制。
+ *   名字距离场（名字变化时才重算）─▶ 两盏圆形主光：解析衰减 + 软阴影
+ *   （圆光很小，用光线采样会满屏噪点，所以单独解析计算）
+ *
+ *   移动的圆光 ── 扫掠光晕 + 反馈衰减 ──▶ 体积光拖尾
+ *
+ * 名字、灯管本体与圆光本体在合成阶段以全分辨率绘制（见 Stage）。
  */
 
-export const MAX_TUBES = 8;
+export const MAX_TUBES = 12;
 
 export const FULLSCREEN_VERT = /* glsl */ `
   varying vec2 vUv;
@@ -35,6 +38,8 @@ export const SEGMENT_GLSL = /* glsl */ `
     return length((p - closestOnSeg(p, a, b, aspect)) * vec2(aspect, 1.0));
   }
 `;
+
+// ── 名字距离场（供圆光软阴影）
 
 const SEED_FRAG = /* glsl */ `
   uniform sampler2D uMask;
@@ -77,24 +82,144 @@ const DIST_FRAG = /* glsl */ `
   }
 `;
 
-const lightFrag = (samples: number) => /* glsl */ `
+// ── 全局光照
+
+/** 光追场景：名字是不透明的黑色遮挡物，点亮的灯管是不透明发光体（rgb = 光色） */
+const GI_SCENE_FRAG = /* glsl */ `
   #define MAX_TUBES ${MAX_TUBES}
-  #define SAMPLES ${samples}
-  uniform sampler2D uDist;
+  uniform sampler2D uMask;
+  uniform vec2 uTexel;
   uniform float uAspect;
+  uniform float uTubeR;
   uniform vec4 uSeg[MAX_TUBES];
   uniform vec3 uCol[MAX_TUBES];
-  uniform float uInt[MAX_TUBES];
-  uniform float uRad[MAX_TUBES];
-  uniform int uCount;
-  uniform float uRadius;
-  uniform float uAmbient;
-  uniform float uHeight;
-  uniform float uTheme;
-  uniform vec3 uBgL, uBgD, uShadowL;
+  uniform float uOn[MAX_TUBES];
   varying vec2 vUv;
 
   ${SEGMENT_GLSL}
+
+  void main() {
+    // 名字遮罩是全分辨率的：四点采样近似盒式降采样，细笔画不会断
+    vec2 o = uTexel * 0.25;
+    float m = 0.25 * (
+      texture2D(uMask, vUv + vec2(-o.x, -o.y)).a + texture2D(uMask, vUv + vec2(o.x, -o.y)).a +
+      texture2D(uMask, vUv + vec2(-o.x, o.y)).a + texture2D(uMask, vUv + vec2(o.x, o.y)).a);
+    vec4 col = vec4(0.0, 0.0, 0.0, m);
+    for (int i = 0; i < MAX_TUBES; i++) {
+      if (uOn[i] <= 0.0) continue;
+      float d = segDist(vUv, uSeg[i].xy, uSeg[i].zw, uAspect) - uTubeR;
+      col = mix(col, vec4(uCol[i], 1.0), clamp(0.5 - d / uTexel.y, 0.0, 1.0));
+    }
+    gl_FragColor = col;
+  }
+`;
+
+/** JFA 种子：被占据的像素记下自己的像素坐标（半浮点在 1024 以内可精确表示 x.5），.zw = 占据标记、覆盖率 */
+const GI_SEED_FRAG = /* glsl */ `
+  uniform sampler2D uScene;
+  varying vec2 vUv;
+  void main() {
+    float a = texture2D(uScene, vUv).a;
+    gl_FragColor = a > 0.02 ? vec4(gl_FragCoord.xy, 1.0, a) : vec4(-1.0, -1.0, 0.0, 0.0);
+  }
+`;
+
+/** 像素空间的 JFA，.zw 原样带下去 */
+const GI_JFA_FRAG = /* glsl */ `
+  uniform sampler2D uSeed;
+  uniform vec2 uTexel;
+  uniform float uStep;
+  varying vec2 vUv;
+  void main() {
+    vec2 p = gl_FragCoord.xy;
+    vec2 best = vec2(-1.0);
+    float bestD = 1e12;
+    for (int y = -1; y <= 1; y++) {
+      for (int x = -1; x <= 1; x++) {
+        vec2 s = texture2D(uSeed, vUv + vec2(float(x), float(y)) * uStep * uTexel).xy;
+        if (s.x < 0.0) continue;
+        float dd = dot(s - p, s - p);
+        if (dd < bestD) { bestD = dd; best = s; }
+      }
+    }
+    gl_FragColor = vec4(best, texture2D(uSeed, vUv).zw);
+  }
+`;
+
+/**
+ * Akari 的光线步进：每个像素向均匀分布的 SAMPLES 个方向发射光线（整组方向按噪声旋转），
+ * 沿距离场步进；命中时取该处场景颜色（灯管 = 光色，名字 = 黑），按走过的距离指数衰减。
+ */
+const giMarchFrag = (samples: number, steps: number) => /* glsl */ `
+  #define SAMPLES ${samples}
+  #define STEP_COUNT ${steps}
+  uniform sampler2D uDf, uScene;
+  uniform vec2 uRes, uTexel;
+  uniform float uFalloff, uMinStep, uFrame;
+  varying vec2 vUv;
+
+  // 交错梯度噪声（带帧偏移）：旋转角在屏幕上分布均匀，经填充模糊后几乎看不出颗粒
+  float ign(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }
+
+  vec3 march(vec2 p, vec2 dir) {
+    float dd = 0.0;
+    for (int i = 0; i < STEP_COUNT; i++) {
+      vec4 df = texture2D(uDf, p * uTexel);
+      if (df.x < 0.0) break;
+      float d = length(df.xy - p);
+      dd += d;
+      if (d < 0.75) return texture2D(uScene, df.xy * uTexel).rgb * exp(-dd * uFalloff);
+      p += dir * max(uMinStep, d);
+      if (p.x < 0.0 || p.y < 0.0 || p.x > uRes.x || p.y > uRes.y) break;
+    }
+    return vec3(0.0);
+  }
+
+  void main() {
+    vec2 p = gl_FragCoord.xy;
+    float bit = 6.2831853 / float(SAMPLES);
+    float ang = ign(p + uFrame * 5.588238) * bit;
+    vec2 dir = vec2(cos(ang), sin(ang));
+    mat2 rot = mat2(cos(bit), sin(bit), -sin(bit), cos(bit));
+    vec3 col = vec3(0.0);
+    for (int i = 0; i < SAMPLES; i++) {
+      col += march(p, dir);
+      dir = rot * dir;
+    }
+    // 被占据的像素（名字、灯管内部）不计光照，由填充 pass 从四周补齐
+    gl_FragColor = vec4(col / float(SAMPLES), 1.0) * (1.0 - texture2D(uDf, vUv).z);
+  }
+`;
+
+/** 3×3 平均，只统计未被占据的像素：抹平采样噪点，并把光照补进遮挡物边缘 */
+const GI_PAD_FRAG = /* glsl */ `
+  uniform sampler2D uTex;
+  uniform vec2 uTexel;
+  varying vec2 vUv;
+  void main() {
+    vec4 sum = vec4(0.0);
+    for (int y = -1; y <= 1; y++) {
+      for (int x = -1; x <= 1; x++) {
+        sum += texture2D(uTex, vUv + vec2(float(x), float(y)) * uTexel);
+      }
+    }
+    gl_FragColor = sum.a > 0.0 ? vec4(sum.rgb / sum.a, min(1.0, sum.a)) : vec4(0.0);
+  }
+`;
+
+// ── 圆形主光
+
+const directFrag = (taps: 1 | 3) => /* glsl */ `
+  #define TAPS ${taps}
+  uniform sampler2D uDist;
+  uniform float uAspect;
+  uniform float uRadius;
+  uniform float uHeight;
+  uniform vec2 uPos[2];
+  uniform vec3 uCol[2];
+  uniform float uInt[2];
+  uniform float uRad[2];
+  varying vec2 vUv;
 
   vec2 asp(vec2 v) { return v * vec2(uAspect, 1.0); }
   float sdf(vec2 uv) { return texture2D(uDist, uv).r; }
@@ -122,91 +247,56 @@ const lightFrag = (samples: number) => /* glsl */ `
     return res * res * (3.0 - 2.0 * res);
   }
 
-  // 长尾衰减：没有高斯那样的「光斑边缘」，整面墙被连续地铺亮
+  // 长尾衰减：没有高斯那样的「光斑边缘」
   float falloff(float r, float radius) {
-    // 保持连续过渡，同时压低远距离尾部，避免多盏灯叠加成一层灰白雾。
     float k = r / max(radius * 1.05, 0.001);
     return 0.74 * exp(-k * k * 0.9) + 0.26 / (1.0 + k * k * 3.0);
   }
 
   void main() {
     vec2 p = vUv;
+    // 文字内部取半遮挡：上采样后字缘只留一圈很淡的接触阴影
     bool inside = sdf(p) < 0.0008;
-
     vec3 lit = vec3(0.0);
-    vec3 litLin = vec3(0.0);
-    float L = 0.0;
-    for (int i = 0; i < MAX_TUBES; i++) {
-      if (i >= uCount) break;
-      vec2 a = uSeg[i].xy, b = uSeg[i].zw;
-      vec2 c = closestOnSeg(p, a, b, uAspect);
-      // 保留完整的连续衰减，避免在光晕边缘产生亮度台阶
-      float sourceRadius = uRad[i] > 0.0 ? uRadius : uRadius * 0.42;
-      float f = falloff(length(asp(p - c)), sourceRadius) * uInt[i];
+    for (int i = 0; i < 2; i++) {
+      vec2 c = uPos[i];
+      float f = falloff(length(asp(p - c)), uRadius) * uInt[i];
       if (f <= 0.0) continue;
-      // 文字内部取半遮挡：上采样后字缘只留一圈很淡的接触阴影
       float sh = 0.5;
       if (!inside) {
-        #if SAMPLES == 1
+        #if TAPS == 1
           sh = softShadow(p, c);
         #else
-          vec2 c1, c2;
-          if (uRad[i] > 0.0) {
-            // 圆形光源：在圆盘上垂直于视线方向取两侧边缘点
-            vec2 toP = normalize(asp(p - c));
-            vec2 perp = vec2(-toP.y, toP.x) * uRad[i] * 1.6 / vec2(uAspect, 1.0);
-            c1 = c - perp;
-            c2 = c + perp;
-          } else {
-            // 灯管：在管身上 c 两侧再各取一点，长灯管 → 宽半影
-            vec2 along = (b - a) * 0.4;
-            c1 = clamp(c - along, min(a, b), max(a, b));
-            c2 = clamp(c + along, min(a, b), max(a, b));
-          }
-          sh = (softShadow(p, c) * 2.0 + softShadow(p, c1) + softShadow(p, c2)) * 0.25;
+          // 在圆盘上垂直于视线方向取两侧边缘点，得到半影
+          vec2 toP = normalize(asp(p - c) + 1e-6);
+          vec2 perp = vec2(-toP.y, toP.x) * uRad[i] * 1.6 / vec2(uAspect, 1.0);
+          sh = (softShadow(p, c) * 2.0 + softShadow(p, c - perp) + softShadow(p, c + perp)) * 0.25;
         #endif
       }
       lit += uCol[i] * f * sh;
-      litLin += pow(uCol[i], vec3(2.2)) * f * sh;
-      L += f * sh;
     }
-
-    // ── 深色：黑底被彩色灯管的漫射光铺满
-    // 在线性空间累加再转回 sRGB：粉彩色光也能保持饱和，灯管之间留出暗部。
-    // uAmbient 是不受遮挡的环境底色：阴影最深处与字内封闭空隙呈深灰而非纯黑，与纯黑字身区分
-    vec3 dark = pow(1.0 - exp(-(uBgD + litLin * 0.72 + uAmbient) * 0.78), vec3(1.0 / 2.2));
-
-    // ── 浅色：白纸被彩光照亮，被遮挡处落入深影；远离文字处由环境光补亮
-    vec3 tint = lit / max(L, 1e-3);
-    float fill = smoothstep(0.02, 0.5, sdf(p)) * 0.55;
-    vec3 base = mix(uShadowL, uBgL, max(smoothstep(0.0, 0.45, L), fill));
-    vec3 light = base * mix(vec3(1.0), tint, clamp(L, 0.0, 1.0) * 0.22);
-
-    gl_FragColor = vec4(mix(light, dark, uTheme), 1.0);
+    gl_FragColor = vec4(lit, 1.0);
   }
 `;
 
 const TRAIL_FRAG = /* glsl */ `
   uniform sampler2D uPrev;
   uniform float uAspect, uDecay;
-  uniform vec4 uCur[2];
-  uniform vec4 uPrevSeg[2];
+  uniform vec2 uCur[2];
+  uniform vec2 uLast[2];
   uniform vec3 uCol[2];
   uniform float uInt[2];
   uniform float uMove[2];
   varying vec2 vUv;
 
-  ${SEGMENT_GLSL}
-
   void main() {
     vec3 acc = texture2D(uPrev, vUv).rgb * uDecay;
     for (int i = 0; i < 2; i++) {
-      // 在上一帧与当前帧之间插值 4 段，得到扫掠形状（运动模糊）
+      // 在上一帧与当前帧之间插值 4 个点，得到扫掠形状（运动模糊）
       float g = 0.0;
       for (int k = 0; k < 4; k++) {
-        vec4 seg = mix(uPrevSeg[i], uCur[i], float(k) / 3.0);
-        float d = segDist(vUv, seg.xy, seg.zw, uAspect);
-        g = max(g, exp(-d * d / 0.0006));
+        vec2 d = (vUv - mix(uLast[i], uCur[i], float(k) / 3.0)) * vec2(uAspect, 1.0);
+        g = max(g, exp(-dot(d, d) / 0.0006));
       }
       acc += uCol[i] * g * uInt[i] * uMove[i] * 0.12;
     }
@@ -218,8 +308,17 @@ export interface Tube {
   a: THREE.Vector2;
   b: THREE.Vector2;
   color: THREE.Vector3;
+  /** 1 = 点亮（发光并遮光），0 = 熄灭（从光追场景中移除） */
+  on: number;
+}
+
+export interface RoundLight {
+  pos: THREE.Vector2;
+  /** 上一帧的位置，用于拖尾 */
+  prev: THREE.Vector2;
+  color: THREE.Vector3;
   intensity: number;
-  /** 圆形光源半径（屏高为单位）；灯管为 0 */
+  /** 圆盘半径（屏高为单位） */
   radius: number;
 }
 
@@ -233,15 +332,28 @@ export interface Rect {
 
 export interface LightState {
   tubes: Tube[];
-  /** 需要拖尾的两根移动灯管（鼠标灯管、游走灯管）及其上一帧端点 */
-  moving: { cur: Tube; prevA: THREE.Vector2; prevB: THREE.Vector2 }[];
-  theme: number;
+  /** 两盏圆形主光：鼠标光、游走光 */
+  lights: RoundLight[];
+  /** 灯管半宽（CSS 像素） */
+  tubeHalfPx: number;
+  /** 圆光的照明半径（屏高为单位） */
   radius: number;
-  bgL: THREE.Vector3;
-  bgD: THREE.Vector3;
-  shadowL: THREE.Vector3;
   trailDecay: number;
 }
+
+export interface FieldQuality {
+  /** 模拟分辨率 = CSS 宽度 × scale，且不超过 maxWidth */
+  scale: number;
+  maxWidth: number;
+  /** 每个像素的光线数、每条光线的最大步数 */
+  samples: number;
+  steps: number;
+  /** 圆光软阴影的采样点数 */
+  shadowTaps: 1 | 3;
+}
+
+/** 光照随传播距离的衰减（每屏高），与 Akari 相同 */
+const GI_FALLOFF = 0.5;
 
 const rt = (w: number, h: number, filter: THREE.MagnificationTextureFilter) =>
   new THREE.WebGLRenderTarget(w, h, {
@@ -253,8 +365,12 @@ const rt = (w: number, h: number, filter: THREE.MagnificationTextureFilter) =>
     generateMipmaps: false,
   });
 
-const vec4s = (n: number) => Array.from({ length: n }, () => new THREE.Vector4());
+const vec2s = (n: number) => Array.from({ length: n }, () => new THREE.Vector2());
 const vec3s = (n: number) => Array.from({ length: n }, () => new THREE.Vector3());
+const vec4s = (n: number) => Array.from({ length: n }, () => new THREE.Vector4());
+
+/** 含汉字的名字用 Noto Serif SC */
+const CJK = /[⺀-鿿豈-﫿]/;
 
 export class LightField {
   readonly maskCanvas = document.createElement('canvas');
@@ -262,10 +378,22 @@ export class LightField {
   private ctx: CanvasRenderingContext2D;
   private scratch = document.createElement('canvas');
 
+  // 名字距离场
   private seedA = rt(4, 4, THREE.NearestFilter);
   private seedB = rt(4, 4, THREE.NearestFilter);
   private distRT = rt(4, 4, THREE.LinearFilter);
-  readonly lightRT = rt(4, 4, THREE.LinearFilter);
+  /** 名字距离场（aspect 空间，屏高为单位） */
+  readonly distTexture = this.distRT.texture;
+  // 全局光照
+  private giScene = rt(4, 4, THREE.NearestFilter);
+  private giDfA = rt(4, 4, THREE.NearestFilter);
+  private giDfB = rt(4, 4, THREE.NearestFilter);
+  private giA = rt(4, 4, THREE.LinearFilter);
+  private giB = rt(4, 4, THREE.LinearFilter);
+  giTexture = this.giA.texture;
+  // 圆光
+  private directRT = rt(4, 4, THREE.LinearFilter);
+  readonly directTexture = this.directRT.texture;
   private trailA = rt(4, 4, THREE.LinearFilter);
   private trailB = rt(4, 4, THREE.LinearFilter);
   trailTexture = this.trailA.texture;
@@ -274,19 +402,28 @@ export class LightField {
   private seedMat: THREE.ShaderMaterial;
   private jfaMat: THREE.ShaderMaterial;
   private distMat: THREE.ShaderMaterial;
-  private lightMat: THREE.ShaderMaterial;
+  private giSceneMat: THREE.ShaderMaterial;
+  private giSeedMat: THREE.ShaderMaterial;
+  private giJfaMat: THREE.ShaderMaterial;
+  private giMarchMat: THREE.ShaderMaterial;
+  private giPadMat: THREE.ShaderMaterial;
+  private directMat: THREE.ShaderMaterial;
   private trailMat: THREE.ShaderMaterial;
 
   private simW = 4;
   private simH = 4;
+  private texel = new THREE.Vector2(0.25, 0.25);
+  private jfaSteps: number[] = [];
+  private cssH = 1;
   private aspect = 1;
   private dirty = true;
+  private frame = 0;
   private fontSize = 100;
   private twoLines = false;
   /** 文字外框（uv，按最宽的名字组合计算，轮播时保持稳定） */
   textRect: Rect = { x0: 0.4, y0: 0.4, x1: 0.6, y1: 0.6 };
 
-  constructor(private renderer: THREE.WebGLRenderer, private simScale: number, samples: 1 | 3) {
+  constructor(private renderer: THREE.WebGLRenderer, private quality: FieldQuality) {
     this.ctx = this.maskCanvas.getContext('2d')!;
     this.maskTexture = new THREE.CanvasTexture(this.maskCanvas);
     this.maskTexture.minFilter = THREE.LinearFilter;
@@ -294,32 +431,51 @@ export class LightField {
 
     const mat = (frag: string, uniforms: Record<string, THREE.IUniform>) =>
       new THREE.ShaderMaterial({ vertexShader: FULLSCREEN_VERT, fragmentShader: frag, uniforms, depthTest: false, depthWrite: false });
+    const texel = { value: this.texel };
 
     this.seedMat = mat(SEED_FRAG, { uMask: { value: this.maskTexture } });
     this.jfaMat = mat(JFA_FRAG, { uSeed: { value: null }, uStep: { value: new THREE.Vector2() }, uAspect: { value: 1 } });
     this.distMat = mat(DIST_FRAG, { uSeed: { value: null }, uAspect: { value: 1 } });
-    this.lightMat = mat(lightFrag(samples), {
-      uDist: { value: this.distRT.texture },
+
+    this.giSceneMat = mat(GI_SCENE_FRAG, {
+      uMask: { value: this.maskTexture },
+      uTexel: texel,
       uAspect: { value: 1 },
+      uTubeR: { value: 0.003 },
       uSeg: { value: vec4s(MAX_TUBES) },
       uCol: { value: vec3s(MAX_TUBES) },
-      uInt: { value: new Array(MAX_TUBES).fill(0) },
-      uRad: { value: new Array(MAX_TUBES).fill(0) },
-      uCount: { value: 0 },
-      uRadius: { value: 0.5 },
-      uAmbient: { value: 0.018 },
+      uOn: { value: new Array(MAX_TUBES).fill(0) },
+    });
+    this.giSeedMat = mat(GI_SEED_FRAG, { uScene: { value: this.giScene.texture } });
+    this.giJfaMat = mat(GI_JFA_FRAG, { uSeed: { value: null }, uTexel: texel, uStep: { value: 1 } });
+    this.giMarchMat = mat(giMarchFrag(quality.samples, quality.steps), {
+      uDf: { value: null },
+      uScene: { value: this.giScene.texture },
+      uRes: { value: new THREE.Vector2() },
+      uTexel: texel,
+      uFalloff: { value: 0 },
+      // 最小步长（模拟像素）：略小于灯管宽度，掠射的光线不会在物体边缘无限逼近
+      uMinStep: { value: 1.5 },
+      uFrame: { value: 0 },
+    });
+    this.giPadMat = mat(GI_PAD_FRAG, { uTex: { value: null }, uTexel: texel });
+
+    this.directMat = mat(directFrag(quality.shadowTaps), {
+      uDist: { value: this.distRT.texture },
+      uAspect: { value: 1 },
+      uRadius: { value: 0.3 },
       uHeight: { value: 0.4 },
-      uTheme: { value: 0 },
-      uBgL: { value: new THREE.Vector3() },
-      uBgD: { value: new THREE.Vector3() },
-      uShadowL: { value: new THREE.Vector3() },
+      uPos: { value: vec2s(2) },
+      uCol: { value: vec3s(2) },
+      uInt: { value: [0, 0] },
+      uRad: { value: [0, 0] },
     });
     this.trailMat = mat(TRAIL_FRAG, {
       uPrev: { value: null },
       uAspect: { value: 1 },
       uDecay: { value: 0.9 },
-      uCur: { value: vec4s(2) },
-      uPrevSeg: { value: vec4s(2) },
+      uCur: { value: vec2s(2) },
+      uLast: { value: vec2s(2) },
       uCol: { value: vec3s(2) },
       uInt: { value: [0, 0] },
       uMove: { value: [0, 0] },
@@ -328,6 +484,7 @@ export class LightField {
 
   setSize(cssW: number, cssH: number, dpr: number) {
     this.aspect = cssW / cssH;
+    this.cssH = cssH;
     const fullScale = Math.min(dpr, 2560 / cssW);
     this.maskCanvas.width = Math.round(cssW * fullScale);
     this.maskCanvas.height = Math.round(cssH * fullScale);
@@ -336,20 +493,26 @@ export class LightField {
     // 画布尺寸变化后必须重新分配 GPU 纹理，否则会按旧尺寸做子区域拷贝
     this.maskTexture.dispose();
 
-    this.simW = Math.max(64, Math.round(Math.min(cssW * this.simScale, 1100)));
+    let w = Math.min(cssW * this.quality.scale, this.quality.maxWidth);
+    // 像素坐标存在半浮点里，长边不超过 1024 才能精确表示
+    if (w / this.aspect > 1024) w = 1024 * this.aspect;
+    this.simW = Math.max(64, Math.round(w));
     this.simH = Math.max(64, Math.round(this.simW / this.aspect));
-    for (const t of [this.seedA, this.seedB, this.distRT, this.lightRT, this.trailA, this.trailB]) t.setSize(this.simW, this.simH);
+    this.texel.set(1 / this.simW, 1 / this.simH);
+    const targets = [this.seedA, this.seedB, this.distRT, this.giScene, this.giDfA, this.giDfB, this.giA, this.giB, this.directRT, this.trailA, this.trailB];
+    for (const t of targets) t.setSize(this.simW, this.simH);
+
+    this.jfaSteps = [];
+    for (let s = 1 << (Math.ceil(Math.log2(Math.max(this.simW, this.simH))) - 1); s >= 1; s >>= 1) this.jfaSteps.push(s);
+    this.jfaSteps.push(1); // 1+JFA：额外一轮修正误差
 
     this.twoLines = this.aspect < 1.15;
     this.dirty = true;
   }
 
-  private font(size: number) {
-    return `500 ${size}px "Outfit", "Noto Sans SC", sans-serif`;
-  }
-
-  private ampFont(size: number) {
-    return `400 ${size}px "Outfit", sans-serif`;
+  /** 名字字体：拉丁字母用 Playfair Display（Akari 字标所用字体），含汉字的名字用 Noto Serif SC */
+  private font(size: number, text: string) {
+    return CJK.test(text) ? `500 ${size}px "Noto Serif SC", serif` : `400 ${size}px "Playfair Display", "Noto Serif SC", serif`;
   }
 
   private setFont(f: string) {
@@ -358,19 +521,21 @@ export class LightField {
     if ('letterSpacing' in this.ctx) (this.ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = '-0.02em';
   }
 
+  private measure(text: string, size: number) {
+    this.setFont(this.font(size, text));
+    return this.ctx.measureText(text).width;
+  }
+
   /** 以所有候选名字中最宽的组合计算字号，轮播时字号稳定不跳动 */
   layout(candidatesA: string[], candidatesB: string[]) {
     const W = this.maskCanvas.width;
     const H = this.maskCanvas.height;
-    const ctx = this.ctx;
-    this.setFont(this.ampFont(100));
-    const amp = ctx.measureText(' & ').width;
-    this.setFont(this.font(100));
+    const amp = this.measure(' & ', 100);
     let widest = 0;
     for (const a of candidatesA) {
       for (const b of candidatesB) {
-        const wa = ctx.measureText(a).width;
-        const wb = ctx.measureText(b).width;
+        const wa = this.measure(a, 100);
+        const wb = this.measure(b, 100);
         widest = Math.max(widest, this.twoLines ? Math.max(wa + amp, wb) : wa + amp + wb);
       }
     }
@@ -403,32 +568,27 @@ export class LightField {
     ctx.fillStyle = '#fff';
     ctx.textBaseline = 'alphabetic';
 
-    this.setFont(this.ampFont(size));
-    const amp = ctx.measureText(' & ').width;
-    this.setFont(this.font(size));
-    const wa = ctx.measureText(a).width;
-    const wb = ctx.measureText(b).width;
-    const cy = H * 0.5;
-
-    const drawAmp = (x: number, y: number) => {
-      this.setFont(this.ampFont(size));
-      ctx.fillText(' & ', x, y);
-      this.setFont(this.font(size));
+    const amp = this.measure(' & ', size);
+    const wa = this.measure(a, size);
+    const wb = this.measure(b, size);
+    const put = (text: string, x: number, y: number) => {
+      this.setFont(this.font(size, text));
+      ctx.fillText(text, x, y);
     };
+    const cy = H * 0.5;
 
     if (this.twoLines) {
       const y1 = cy - size * 0.12;
-      const y2 = cy + size * 0.92;
       const x1 = (W - (wa + amp)) / 2;
-      ctx.fillText(a, x1, y1);
-      drawAmp(x1 + wa, y1);
-      ctx.fillText(b, (W - wb) / 2, y2);
+      put(a, x1, y1);
+      put(' & ', x1 + wa, y1);
+      put(b, (W - wb) / 2, cy + size * 0.92);
     } else {
       const x = (W - (wa + amp + wb)) / 2;
       const y = cy + size * 0.33;
-      ctx.fillText(a, x, y);
-      drawAmp(x + wa, y);
-      ctx.fillText(b, x + wa + amp, y);
+      put(a, x, y);
+      put(' & ', x + wa, y);
+      put(b, x + wa + amp, y);
     }
 
     if (glitch > 0.05) {
@@ -460,10 +620,7 @@ export class LightField {
     let read = this.seedA;
     let write = this.seedB;
     this.jfaMat.uniforms.uAspect.value = this.aspect;
-    const steps: number[] = [];
-    for (let s = 1 << Math.ceil(Math.log2(Math.max(this.simW, this.simH)) - 1); s >= 1; s >>= 1) steps.push(s);
-    steps.push(1); // 1+JFA：额外一轮修正误差
-    for (const s of steps) {
+    for (const s of this.jfaSteps) {
       this.jfaMat.uniforms.uSeed.value = read.texture;
       this.jfaMat.uniforms.uStep.value.set(s / this.simW, s / this.simH);
       this.pass(this.jfaMat, write);
@@ -474,41 +631,76 @@ export class LightField {
     this.pass(this.distMat, this.distRT);
   }
 
+  private renderGI(s: LightState) {
+    const su = this.giSceneMat.uniforms;
+    su.uAspect.value = this.aspect;
+    // 灯管在光追场景里至少约 3 个模拟像素宽，否则光线会从它中间穿过去
+    su.uTubeR.value = Math.max(s.tubeHalfPx / this.cssH, 1.5 / this.simH);
+    for (let i = 0; i < MAX_TUBES; i++) {
+      const t = s.tubes[i];
+      su.uOn.value[i] = t ? t.on : 0;
+      if (!t) continue;
+      su.uSeg.value[i].set(t.a.x, t.a.y, t.b.x, t.b.y);
+      su.uCol.value[i].copy(t.color);
+    }
+    this.pass(this.giSceneMat, this.giScene);
+    this.pass(this.giSeedMat, this.giDfA);
+
+    let read = this.giDfA;
+    let write = this.giDfB;
+    for (const step of this.jfaSteps) {
+      this.giJfaMat.uniforms.uSeed.value = read.texture;
+      this.giJfaMat.uniforms.uStep.value = step;
+      this.pass(this.giJfaMat, write);
+      [read, write] = [write, read];
+    }
+
+    const mu = this.giMarchMat.uniforms;
+    mu.uDf.value = read.texture;
+    mu.uRes.value.set(this.simW, this.simH);
+    mu.uFalloff.value = GI_FALLOFF / this.simH;
+    mu.uFrame.value = this.frame;
+    this.frame = (this.frame + 1) % 64;
+    this.pass(this.giMarchMat, this.giA);
+
+    let src = this.giA;
+    let dst = this.giB;
+    for (let i = 0; i < 3; i++) {
+      this.giPadMat.uniforms.uTex.value = src.texture;
+      this.pass(this.giPadMat, dst);
+      [src, dst] = [dst, src];
+    }
+    this.giTexture = src.texture;
+  }
+
   render(s: LightState) {
     if (this.dirty) {
       this.computeDistanceField();
       this.dirty = false;
     }
 
-    const u = this.lightMat.uniforms;
-    u.uAspect.value = this.aspect;
-    u.uCount.value = Math.min(s.tubes.length, MAX_TUBES);
-    s.tubes.slice(0, MAX_TUBES).forEach((t, i) => {
-      u.uSeg.value[i].set(t.a.x, t.a.y, t.b.x, t.b.y);
-      u.uCol.value[i].copy(t.color);
-      u.uInt.value[i] = t.intensity;
-      u.uRad.value[i] = t.radius;
-    });
-    u.uTheme.value = s.theme;
-    u.uRadius.value = s.radius;
-    u.uBgL.value.copy(s.bgL);
-    u.uBgD.value.copy(s.bgD);
-    u.uShadowL.value.copy(s.shadowL);
-    this.pass(this.lightMat, this.lightRT);
+    this.renderGI(s);
 
+    const du = this.directMat.uniforms;
+    du.uAspect.value = this.aspect;
+    du.uRadius.value = s.radius;
     const tu = this.trailMat.uniforms;
     tu.uPrev.value = this.trailA.texture;
     tu.uAspect.value = this.aspect;
     tu.uDecay.value = s.trailDecay;
-    s.moving.forEach((m, i) => {
-      tu.uCur.value[i].set(m.cur.a.x, m.cur.a.y, m.cur.b.x, m.cur.b.y);
-      tu.uPrevSeg.value[i].set(m.prevA.x, m.prevA.y, m.prevB.x, m.prevB.y);
-      tu.uCol.value[i].copy(m.cur.color);
-      tu.uInt.value[i] = m.cur.intensity;
+    s.lights.slice(0, 2).forEach((l, i) => {
+      du.uPos.value[i].copy(l.pos);
+      du.uCol.value[i].copy(l.color);
+      du.uInt.value[i] = l.intensity;
+      du.uRad.value[i] = l.radius;
+      tu.uCur.value[i].copy(l.pos);
+      tu.uLast.value[i].copy(l.prev);
+      tu.uCol.value[i].copy(l.color);
+      tu.uInt.value[i] = l.intensity;
       // 只有移动时才留下拖尾：位移越大越亮
-      const moved = Math.hypot(m.cur.a.x - m.prevA.x, m.cur.a.y - m.prevA.y);
-      tu.uMove.value[i] = Math.min(1, moved * 60);
+      tu.uMove.value[i] = Math.min(1, l.pos.distanceTo(l.prev) * 60);
     });
+    this.pass(this.directMat, this.directRT);
     this.pass(this.trailMat, this.trailB);
     [this.trailA, this.trailB] = [this.trailB, this.trailA];
     this.trailTexture = this.trailA.texture;

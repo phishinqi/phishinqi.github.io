@@ -1,31 +1,33 @@
 import * as THREE from 'three';
 import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
-import { LightField, FULLSCREEN_VERT, SEGMENT_GLSL, MAX_TUBES, type LightState, type Rect, type Tube } from './LightField';
+import { LightField, FULLSCREEN_VERT, SEGMENT_GLSL, MAX_TUBES, type Rect, type RoundLight, type Tube } from './LightField';
 import { Scene3D } from './Scene3D';
-import { Flicker, Strobe } from '../core/flicker';
-import { clamp, damp, mixRgb, type RGB } from '../core/math';
+import { Flicker } from '../core/flicker';
+import { bounceIn, clamp, damp, mixRgb, rand, type RGB } from '../core/math';
 import { palettes } from '../core/theme';
 import { motion, tier } from '../core/env';
 import { siteConfig } from '../config/site.config';
 
 /**
  * 全站唯一的 WebGL 画布（fixed，位于内容之下）。
- * 首屏渲染 2D 光场，向下滚动时交叉淡化到 3D 体积光场景；
- * 最终合成：平涂文字剪影 + 光源本体（灯管 / 圆形光） + 光轨迹 + 暗角 + 胶片颗粒。
+ * 首屏：Akari 式霓虹灯管阵列 + 两盏圆形主光照亮墙面，名字是墨色剪影；
+ * 向下滚动时交叉淡化到 3D 体积光场景。
  */
 
 const COMPOSITE_FRAG = /* glsl */ `
   #define MAX_TUBES ${MAX_TUBES}
-  uniform sampler2D uLight, uTrail, uMask, uScene;
-  uniform float uHeroMix, uTheme, uAspect, uTime, uFlash, uSceneOn, uTubeW, uLine;
+  uniform sampler2D uGi, uDirect, uTrail, uMask, uDist, uScene;
+  uniform float uHeroMix, uTheme, uAspect, uTime, uFlash, uSceneOn;
+  uniform float uTubeR, uPower, uGiGain, uAmbient;
   uniform vec2 uRes;
-  uniform vec3 uInk;
-  uniform float uInkAlpha;
+  uniform vec3 uInk, uBgL, uShadowL;
   uniform vec4 uSeg[MAX_TUBES];
   uniform vec3 uCol[MAX_TUBES];
-  uniform float uInt[MAX_TUBES];
-  uniform float uRad[MAX_TUBES];
-  uniform int uCount;
+  uniform float uOn[MAX_TUBES];
+  uniform vec2 uLPos[2];
+  uniform vec3 uLCol[2];
+  uniform float uLInt[2];
+  uniform float uLRad[2];
   varying vec2 vUv;
 
   ${SEGMENT_GLSL}
@@ -40,46 +42,48 @@ const COMPOSITE_FRAG = /* glsl */ `
   }
 
   vec3 hero(vec2 uv) {
-    vec3 bg = texture2D(uLight, uv).rgb;
+    vec3 gi = texture2D(uGi, uv).rgb * uGiGain * uPower;
+    vec3 direct = texture2D(uDirect, uv).rgb;
+    vec3 tr = texture2D(uTrail, uv).rgb;
 
-    // 平涂剪影：墨色实心字
-    float m = texture2D(uMask, uv).a;
-    // 深色：使用浅灰字面并带少量环境反射，避免黑字沉进光场。
-    vec3 face = mix(uInk, mix(vec3(0.13, 0.12, 0.15), vec3(0.22), clamp(dot(bg, vec3(0.333)), 0.0, 1.0) * 0.2), uTheme);
-    vec3 col = mix(bg, mix(bg, face, uInkAlpha), m);
-    if (uTheme > 0.001) {
-      vec2 px = uLine / uRes;
-      float mo = 0.0;
-      for (int k = 0; k < 8; k++) {
-        float a = float(k) * 0.7853982;
-        mo = max(mo, texture2D(uMask, uv + vec2(cos(a), sin(a)) * px).a);
-      }
-      // 只保留很轻的外缘压暗，避免出现清晰的描边边界。
-      float edge = smoothstep(0.0, 0.55, clamp(mo - m, 0.0, 1.0));
-      col = mix(col, face * 0.72, edge * uTheme * 0.16);
+    // ── 深色（Akari）：黑墙只被灯管的全局光照亮，另有一层很淡的环境底色
+    vec3 dark = vec3(uAmbient) + gi + direct * 0.35 + tr * 0.35;
+
+    // ── 浅色：白墙被彩光染色；照不到的地方（名字的影子）落入浅影，远离文字处由环境光补亮
+    vec3 lit = gi + direct * 0.6;
+    float L = dot(lit, vec3(0.299, 0.587, 0.114));
+    float fill = smoothstep(0.02, 0.5, texture2D(uDist, uv).r) * 0.55;
+    vec3 base = mix(uShadowL, uBgL, max(smoothstep(0.0, 0.3, L), fill));
+    vec3 tint = lit / max(max(lit.r, max(lit.g, lit.b)), 1e-3);
+    vec3 light = base * mix(vec3(1.0), tint, clamp(L * 1.4, 0.0, 1.0) * 0.4);
+    float ta = clamp(max(tr.r, max(tr.g, tr.b)), 0.0, 1.0);
+    light = mix(light, light * (tr / max(ta, 1e-3)), ta * 0.4);
+
+    vec3 col = mix(light, dark, uTheme);
+
+    // 名字：平涂墨色剪影
+    col = mix(col, uInk, texture2D(uMask, uv).a);
+
+    // 灯管本体：实心胶囊（Akari 的霓虹条），通电时随总电源一起明灭
+    float body = clamp(uPower * 1.5, 0.0, 1.0);
+    for (int i = 0; i < MAX_TUBES; i++) {
+      if (uOn[i] <= 0.0) continue;
+      float d = segDist(uv, uSeg[i].xy, uSeg[i].zw, uAspect) * uRes.y - uTubeR;
+      col = mix(col, mix(uCol[i] * 0.9, uCol[i], uTheme), clamp(0.5 - d, 0.0, 1.0) * body);
     }
 
-    // 移动光源的体积光轨迹
-    vec3 tr = texture2D(uTrail, uv).rgb;
-    float a = clamp(max(tr.r, max(tr.g, tr.b)), 0.0, 1.0);
-    col = mix(mix(col, col * (tr / max(a, 1e-3)), a * 0.5), col + tr * 0.6, uTheme);
-
-    // 光源本体：灯管 = 细亮芯；圆形光 = 实心圆盘。频闪熄灭时退成暗色玻璃
-    for (int i = 0; i < MAX_TUBES; i++) {
-      if (i >= uCount) break;
-      float radPx = uRad[i] * uRes.y;
-      float dpx = segDist(uv, uSeg[i].xy, uSeg[i].zw, uAspect) * uRes.y - radPx;
-      float I = uInt[i];
-      vec3 C = uCol[i];
-      float core = radPx > 0.0 ? smoothstep(1.2, -0.8, dpx) : smoothstep(uTubeW, uTubeW * 0.35, dpx);
-      float spread = radPx > 0.0 ? radPx * 0.9 + uTubeW * 3.0 : uTubeW * 5.0;
-      float glow = exp(-max(dpx, 0.0) / spread) * 0.45 * I;
-      // 光源本体的亮度与它照亮场景的强度解耦：本体始终明亮，只在频闪熄灭时变暗
+    // 圆形主光：实心圆盘 + 很小的光晕。闪烁熄灭时退成暗色玻璃
+    for (int i = 0; i < 2; i++) {
+      float radPx = uLRad[i] * uRes.y;
+      float d = length((uv - uLPos[i]) * vec2(uAspect, 1.0)) * uRes.y - radPx;
+      float I = uLInt[i];
+      vec3 C = uLCol[i];
+      float core = smoothstep(1.2, -0.8, d);
+      float glow = exp(-max(d, 0.0) / (radPx * 0.9)) * 0.3 * I;
       float on = clamp(I * 1.8, 0.0, 1.0);
-      vec3 onD = mix(C, vec3(1.0), 0.25);
-      vec3 darkT = mix(col + C * glow, mix(C * 0.2, onD, on), core);
-      vec3 lightT = mix(mix(col, C, glow * 0.7), mix(mix(C, vec3(0.6), 0.5), C * 0.92, on), core);
-      col = mix(lightT, darkT, uTheme);
+      vec3 darkL = mix(col + C * glow, mix(C * 0.2, mix(C, vec3(1.0), 0.25), on), core);
+      vec3 lightL = mix(mix(col, C, glow * 0.7), mix(mix(C, vec3(0.6), 0.5), C * 0.92, on), core);
+      col = mix(lightL, darkL, uTheme);
     }
     return col;
   }
@@ -91,12 +95,14 @@ const COMPOSITE_FRAG = /* glsl */ `
     else if (uHeroMix < 0.001) col = toSRGB(texture2D(uScene, uv).rgb);
     else col = mix(toSRGB(texture2D(uScene, uv).rgb), hero(uv), uHeroMix);
 
-    // 电影感暗角
-    float v = smoothstep(0.35, 1.25, length((uv - 0.5) * vec2(uAspect, 1.0) * 1.15));
-    col *= 1.0 - v * mix(0.12, 0.45, uTheme);
+    // 暗角：首屏用 Akari 的（只在深色下，角落压暗约三分之一），3D 场景保持电影感暗角
+    float vHero = smoothstep(0.6, 1.6, length((uv - 0.5) * vec2(uAspect, 1.0)) * 2.0 * inversesqrt(uAspect * uAspect + 1.0)) * uTheme;
+    float vScene = smoothstep(0.35, 1.25, length((uv - 0.5) * vec2(uAspect, 1.0) * 1.15)) * mix(0.12, 0.45, uTheme);
+    col *= 1.0 - mix(vScene, vHero, uHeroMix);
 
     col *= 1.0 + uFlash;
-    col += (hash(uv * uRes + fract(uTime) * 100.0) - 0.5) * mix(0.03, 0.04, uTheme);
+    // 首屏只留 1/255 的抖动（消除色带），3D 场景保留胶片颗粒
+    col += (hash(uv * uRes + fract(uTime) * 100.0) - 0.5) * mix(mix(0.03, 0.04, uTheme), 1.0 / 255.0, uHeroMix);
     gl_FragColor = vec4(col, 1.0);
   }
 `;
@@ -114,25 +120,36 @@ export interface StageInput {
   glitch: number;
 }
 
-/** 背景灯管：长度（屏高为单位）、所属的人、方向（1 → 左到右，-1 → 右到左）、速度（uv/s） */
-interface TubeDef {
+/** 霓虹灯管的亮灭周期（秒）：每根灯管半个周期亮、半个周期灭，彼此错开 */
+const LOOP = 16;
+/** 灯管半宽（CSS 像素） */
+const TUBE_HALF_PX = 3;
+
+/** 背景灯管：长度（CSS 像素）、所属的人、方向（1 → 左到右）、速度（屏宽/s）、亮灭相位、同色系偏移（HSL） */
+interface BarDef {
   len: number;
   person: 0 | 1;
   dir: 1 | -1;
   speed: number;
   offset: number;
-  strobe: boolean;
+  phase: number;
+  hsl: [number, number, number];
 }
 
-// 前 3 根在文字上方穿行，后 3 根在下方；相邻两行方向相反
-const BG_TUBES: TubeDef[] = [
-  { len: 0.5, person: 0, dir: 1, speed: 0.022, offset: 0.1, strobe: false },
-  { len: 0.36, person: 1, dir: -1, speed: 0.034, offset: 0.55, strobe: true },
-  { len: 0.62, person: 1, dir: 1, speed: 0.016, offset: 0.8, strobe: false },
-  { len: 0.44, person: 1, dir: -1, speed: 0.026, offset: 0.3, strobe: false },
-  { len: 0.3, person: 0, dir: 1, speed: 0.04, offset: 0.7, strobe: true },
-  { len: 0.56, person: 0, dir: -1, speed: 0.019, offset: 0.05, strobe: false },
-];
+/**
+ * 与 Akari 相同的 12 根灯管：偶数在名字上方、奇数在下方，越靠前越贴近名字；
+ * 两人的颜色在每一侧交替出现，三分之二的灯管在主题色基础上做小幅色相 / 饱和度 / 明度偏移
+ */
+const makeBars = (): BarDef[] =>
+  Array.from({ length: MAX_TUBES }, (_, i) => ({
+    len: 500 * (0.5 + Math.random()),
+    person: ((i >> 1) % 2) as 0 | 1,
+    dir: Math.random() > 0.5 ? 1 : -1,
+    speed: 0.3 * (0.1 + Math.random() * 0.1),
+    offset: Math.random(),
+    phase: (i / MAX_TUBES) * LOOP,
+    hsl: i % 3 === 0 ? [0, 0, 0] : [rand(-0.05, 0.05), rand(-0.1, 0.1), rand(-0.08, 0.05)],
+  }));
 
 const MOUSE_RADIUS = 0.016;
 const MOUSE_INTENSITY = 0.72;
@@ -140,14 +157,9 @@ const WANDER_INTENSITY = 0.6;
 const WANDER_RADIUS = 0.013;
 
 const v3 = (c: RGB) => new THREE.Vector3(c[0], c[1], c[2]);
+const tmpColor = new THREE.Color();
 
-const makeTube = (radius = 0): Tube => ({
-  a: new THREE.Vector2(),
-  b: new THREE.Vector2(),
-  color: new THREE.Vector3(),
-  intensity: 0,
-  radius,
-});
+const makeTube = (): Tube => ({ a: new THREE.Vector2(), b: new THREE.Vector2(), color: new THREE.Vector3(), on: 0 });
 
 export class Stage {
   readonly renderer: THREE.WebGLRenderer;
@@ -156,23 +168,26 @@ export class Stage {
   private quad: FullScreenQuad;
   private composite: THREE.ShaderMaterial;
 
-  private tubes: Tube[] = [makeTube(MOUSE_RADIUS), makeTube(WANDER_RADIUS), ...BG_TUBES.map(() => makeTube())];
-  private modulators: { value(t: number): number }[] = [
-    new Flicker(3, 8), // 鼠标光
-    new Flicker(4, 11), // 游走光
-    ...BG_TUBES.map((d) => (d.strobe ? new Strobe() : new Flicker(5, 14))),
-  ];
+  private bars = makeBars();
+  private tubes: Tube[] = this.bars.map(makeTube);
+  private modulators = [new Flicker(3, 8), new Flicker(4, 11)];
 
   /** 当前两盏主光的强度（含闪烁），供 DOM 同步 */
   intensities: [number, number] = [0, 0];
   /** 开场点亮 0..1 */
   power = 0;
+  /** 导航条底边到视口顶部的距离（CSS 像素），灯管不进入这一区域 */
+  topInset = 0;
   theme = 0;
   private a = new THREE.Vector2(0.3, 0.82);
   private b = new THREE.Vector2(0.75, 0.18);
   private aPrev = new THREE.Vector2();
   private bPrev = new THREE.Vector2();
   private bVel = new THREE.Vector2();
+  private lights: RoundLight[] = [
+    { pos: this.a, prev: this.aPrev, color: new THREE.Vector3(), intensity: 0, radius: MOUSE_RADIUS },
+    { pos: this.b, prev: this.bPrev, color: new THREE.Vector3(), intensity: 0, radius: WANDER_RADIUS },
+  ];
   private idleTime = 0;
   private lastPointer = new THREE.Vector2(-1, -1);
   private w = 1;
@@ -184,8 +199,13 @@ export class Stage {
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.NoToneMapping;
 
-    // 面光源很柔和，光照可以用更低的分辨率计算
-    this.field = new LightField(this.renderer, tier === 'high' ? 0.4 : 0.28, tier === 'high' ? 3 : 1);
+    // 全局光照在半分辨率上计算（与 Akari 相同），低端设备再降一档
+    this.field = new LightField(
+      this.renderer,
+      tier === 'high'
+        ? { scale: 0.5, maxWidth: 960, samples: 16, steps: 24, shadowTaps: 3 }
+        : { scale: 0.35, maxWidth: 420, samples: 12, steps: 20, shadowTaps: 1 },
+    );
     this.scene3d = new Scene3D(this.renderer, tier === 'low');
     this.quad = new FullScreenQuad();
     this.composite = new THREE.ShaderMaterial({
@@ -194,9 +214,11 @@ export class Stage {
       depthTest: false,
       depthWrite: false,
       uniforms: {
-        uLight: { value: this.field.lightRT.texture },
+        uGi: { value: this.field.giTexture },
+        uDirect: { value: this.field.directTexture },
         uTrail: { value: null },
         uMask: { value: this.field.maskTexture },
+        uDist: { value: this.field.distTexture },
         uScene: { value: null },
         uHeroMix: { value: 1 },
         uSceneOn: { value: 0 },
@@ -204,16 +226,22 @@ export class Stage {
         uAspect: { value: 1 },
         uTime: { value: 0 },
         uFlash: { value: 0 },
-        uTubeW: { value: 2 },
-        uLine: { value: 1.5 },
+        uTubeR: { value: 3 },
+        uPower: { value: 0 },
+        // 墙面亮度：全局光照增益、深色下的环境底色（Akari：#ddd × 0.1）
+        uGiGain: { value: 1 },
+        uAmbient: { value: 0.07 },
         uRes: { value: new THREE.Vector2() },
         uInk: { value: new THREE.Vector3() },
-        uInkAlpha: { value: 1 },
+        uBgL: { value: v3(palettes.light.bg) },
+        uShadowL: { value: v3(palettes.light.shadow) },
         uSeg: { value: Array.from({ length: MAX_TUBES }, () => new THREE.Vector4()) },
         uCol: { value: Array.from({ length: MAX_TUBES }, () => new THREE.Vector3()) },
-        uInt: { value: new Array(MAX_TUBES).fill(0) },
-        uRad: { value: new Array(MAX_TUBES).fill(0) },
-        uCount: { value: 0 },
+        uOn: { value: new Array(MAX_TUBES).fill(0) },
+        uLPos: { value: [new THREE.Vector2(), new THREE.Vector2()] },
+        uLCol: { value: [new THREE.Vector3(), new THREE.Vector3()] },
+        uLInt: { value: [0, 0] },
+        uLRad: { value: [MOUSE_RADIUS, WANDER_RADIUS] },
       },
     });
     this.quad.material = this.composite;
@@ -234,8 +262,7 @@ export class Stage {
     const u = this.composite.uniforms;
     u.uAspect.value = w / h;
     u.uRes.value.set(w * dpr, h * dpr);
-    u.uTubeW.value = 2.4 * dpr;
-    u.uLine.value = 1.4 * dpr;
+    u.uTubeR.value = TUBE_HALF_PX * dpr;
   }
 
   /** 文字禁区：文字外框向外扩展「安全距离 + 额外像素」（uv） */
@@ -314,53 +341,48 @@ export class Stage {
     if (this.pushOut(this.b, rB)) this.bVel.multiplyScalar(0.4);
   }
 
-  /** 背景灯管：在文字禁区上下的行里横向穿行，移出屏幕后从另一侧循环回来 */
-  private updateTubes(t: number, ca: RGB, cb: RGB) {
+  /**
+   * 霓虹灯管（Akari）：在文字禁区上下的行里横向漂移，移出屏幕后从另一侧回来；
+   * 亮灭包络 bounceIn(sin(2πt/16))，通电和断电时各有一串快速的明灭
+   */
+  private updateBars(t: number, ca: RGB, cb: RGB) {
     const aspect = this.w / this.h;
-    const lenScale = Math.min(1, aspect / 1.5);
-    const colors = [v3(ca), v3(cb)];
-    const [mouse, wanderer, ...rest] = this.tubes;
+    const lenScale = Math.max(1, Math.sqrt(aspect)) * Math.min(1, this.w / 1280);
+    // 减少动态效果时：灯管静止，保持开场那一刻的亮灭
+    const tt = motion.reduced ? 0 : t;
+    const colors = [ca, cb];
 
-    mouse.a.copy(this.a);
-    mouse.b.copy(this.a);
-    mouse.color.copy(colors[0]);
-    mouse.intensity = MOUSE_INTENSITY * this.modulators[0].value(t) * this.power;
-
-    wanderer.a.copy(this.b);
-    wanderer.b.copy(this.b);
-    wanderer.color.copy(colors[1]);
-    wanderer.intensity = WANDER_INTENSITY * this.modulators[1].value(t + 17) * this.power;
-
-    // 可用的行：禁区上方、下方
     const zone = this.safeZone(4);
     const edge = 0.05;
+    // 上方的行不进入导航条（窄屏时导航有两行）
+    const top = 1 - Math.max(edge, (this.topInset + 16) / this.h);
     const bands = [
-      { lo: Math.min(1 - edge, zone.y1), hi: 1 - edge },
+      { lo: Math.min(top, zone.y1), hi: top },
       { lo: edge, hi: Math.max(edge, zone.y0) },
     ];
-    const perBand = BG_TUBES.length / 2;
+    const perBand = MAX_TUBES / 2;
 
-    BG_TUBES.forEach((def, i) => {
-      let band = bands[i < perBand ? 0 : 1];
+    this.bars.forEach((def, i) => {
+      let side = i % 2;
       // 某一侧没有空间时挪到另一侧
-      if (band.hi - band.lo < 0.02) band = bands[i < perBand ? 1 : 0];
-      const k = i % perBand;
-      const y = band.lo + ((band.hi - band.lo) * (k + 0.5)) / perBand;
+      if (bands[side].hi - bands[side].lo < 0.02) side = 1 - side;
+      const band = bands[side];
+      const k = ((i >> 1) + 0.5) / perBand;
+      const y = side === 0 ? band.lo + (band.hi - band.lo) * k : band.hi - (band.hi - band.lo) * k;
 
-      const half = (def.len * lenScale) / 2 / aspect;
-      const min = -half - 0.05;
-      const span = 1 + 2 * (half + 0.05);
-      const travel = motion.reduced ? 0 : def.dir * def.speed * t;
-      const x = min + ((((def.offset * span + travel) % span) + span) % span);
+      const half = (def.len * lenScale) / 2 / this.w;
+      const min = -half - 0.02;
+      const span = 1 + 2 * (half + 0.02);
+      const x = min + ((((def.offset * span + def.dir * def.speed * tt) % span) + span) % span);
 
-      const tube = rest[i];
+      const tube = this.tubes[i];
       tube.a.set(x - half, y);
       tube.b.set(x + half, y);
-      tube.color.copy(colors[def.person]);
-      tube.intensity = 0.42 * this.modulators[i + 2].value(t) * this.power;
+      tube.on = bounceIn(Math.sin((2 * Math.PI * (def.phase + tt)) / LOOP)) > 0.005 ? 1 : 0;
+      const c = colors[def.person];
+      tmpColor.setRGB(c[0], c[1], c[2]).offsetHSL(def.hsl[0], def.hsl[1], def.hsl[2]);
+      tube.color.set(clamp(tmpColor.r), clamp(tmpColor.g), clamp(tmpColor.b));
     });
-
-    this.intensities = [mouse.intensity, wanderer.intensity];
   }
 
   render(t: number, dt: number, input: StageInput) {
@@ -373,7 +395,7 @@ export class Stage {
     const ca = mixRgb(pl.a, pd.a, th);
     const cb = mixRgb(pl.b, pd.b, th);
     const bg = mixRgb(pl.bg, pd.bg, th);
-    const ink: RGB = mixRgb([0.035, 0.03, 0.045], [0.13, 0.12, 0.15], th);
+    const ink: RGB = mixRgb([0.035, 0.03, 0.045], [0.01, 0.01, 0.012], th);
     const flash = motion.reduced ? 0 : input.glitch * (Math.random() - 0.5) * 0.06;
 
     const heroOn = input.heroMix > 0.001;
@@ -381,32 +403,34 @@ export class Stage {
     const u = this.composite.uniforms;
 
     this.moveLights(t, dt, input.pointer);
-    this.updateTubes(t, ca, cb);
+    this.updateBars(t, ca, cb);
+    const [la, lb] = this.lights;
+    la.color.copy(v3(ca));
+    la.intensity = MOUSE_INTENSITY * this.modulators[0].value(t) * this.power;
+    lb.color.copy(v3(cb));
+    lb.intensity = WANDER_INTENSITY * this.modulators[1].value(t + 17) * this.power;
+    this.intensities = [la.intensity, lb.intensity];
 
     if (heroOn) {
-      const [mouse, wanderer] = this.tubes;
-      const state: LightState = {
+      this.field.render({
         tubes: this.tubes,
-        moving: [
-          { cur: mouse, prevA: this.aPrev, prevB: this.aPrev },
-          { cur: wanderer, prevA: this.bPrev, prevB: this.bPrev },
-        ],
-        theme: th,
+        lights: this.lights,
+        tubeHalfPx: TUBE_HALF_PX,
         radius: 0.34 - th * 0.06,
-        bgL: v3(pl.bg),
-        bgD: v3(pd.bg),
-        shadowL: v3(pl.shadow),
         trailDecay: motion.reduced ? 0 : Math.pow(0.88, dt * 60),
-      };
-      this.field.render(state);
+      });
+      u.uGi.value = this.field.giTexture;
       u.uTrail.value = this.field.trailTexture;
 
-      u.uCount.value = this.tubes.length;
       this.tubes.forEach((tb, i) => {
         u.uSeg.value[i].set(tb.a.x, tb.a.y, tb.b.x, tb.b.y);
         u.uCol.value[i].copy(tb.color);
-        u.uInt.value[i] = tb.intensity;
-        u.uRad.value[i] = tb.radius;
+        u.uOn.value[i] = tb.on;
+      });
+      this.lights.forEach((l, i) => {
+        u.uLPos.value[i].copy(l.pos);
+        u.uLCol.value[i].copy(l.color);
+        u.uLInt.value[i] = l.intensity;
       });
     }
 
@@ -431,6 +455,7 @@ export class Stage {
     u.uTheme.value = th;
     u.uTime.value = t;
     u.uFlash.value = flash;
+    u.uPower.value = this.power;
     u.uInk.value.copy(v3(ink));
 
     this.renderer.setRenderTarget(null);
